@@ -1,0 +1,14 @@
+package com.bulton.api_student_management.dto.request;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter 
+public class LoginRequest {
+    @NotBlank(message = "Username is required")
+    private String username; 
+    @NotBlank (message = "password is required")
+    private String password;
+}
