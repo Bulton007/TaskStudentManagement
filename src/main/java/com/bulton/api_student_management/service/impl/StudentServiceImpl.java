@@ -1,7 +1,9 @@
 package com.bulton.api_student_management.service.impl;
 
+import java.time.Duration;
 import java.util.DuplicateFormatFlagsException;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
@@ -15,6 +17,7 @@ import com.bulton.api_student_management.entity.Student;
 import com.bulton.api_student_management.exception.DuplicationResourceException;
 import com.bulton.api_student_management.exception.ResourceNotFoundException;
 import com.bulton.api_student_management.repository.StudentRepository;
+import com.bulton.api_student_management.service.RedisService;
 import com.bulton.api_student_management.service.StudentService;
 import lombok.RequiredArgsConstructor;
 
@@ -23,8 +26,11 @@ import lombok.RequiredArgsConstructor;
 @Transactional 
 public class StudentServiceImpl implements StudentService{
     private final StudentRepository studentRepository;
+    private final RedisService redisService;
+    private static final String STUDENT_KEY_PREFIX = "students:"; 
+    private static final String ALL_STUDENTS_KEY = "students:all"; 
+    private static final Duration STUDENT_CACHE_TTL = Duration.ofMinutes(10); 
     @Override
-    @CacheEvict(value = "students", allEntries = true)
     public StudentResponse createStudent(StudentRequest request) {
         if(studentRepository.existsByStudentCode(request.getStudentCode())){
             throw new DuplicateFormatFlagsException(
@@ -48,18 +54,29 @@ public class StudentServiceImpl implements StudentService{
             .address(request.getAddress())
             .build();
         Student savedStudent = studentRepository.save(student);
-        return StudentResponse.fromEntity(savedStudent);
+        StudentResponse response = StudentResponse.fromEntity(savedStudent); 
+        redisService.set(
+            STUDENT_KEY_PREFIX + savedStudent.getId(), 
+            response, 
+            STUDENT_CACHE_TTL);
+        redisService.delete(ALL_STUDENTS_KEY);
+        return response;    
     }
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(
-        value = "students", 
-        key = "#id", 
-        unless = "#result == null"
-    )
     public StudentResponse getStudentById(Long id) {
+        String cacheKey = STUDENT_KEY_PREFIX + id; 
+        Optional<StudentResponse> cachedStudent = 
+            redisService.get(
+                cacheKey,
+                StudentResponse.class);
+        if( cachedStudent.isPresent()){
+            return cachedStudent.get();
+        } 
         Student student = findStudent(id);
-        return StudentResponse.fromEntity(student);
+        StudentResponse response = StudentResponse.fromEntity(student); 
+        redisService.set(cacheKey, response, Duration.ofMinutes(10));
+        return response;
     }
     @Override
     @Cacheable(value = "studentList", key = "'all'")
@@ -99,13 +116,23 @@ public class StudentServiceImpl implements StudentService{
         student.setGender(request.getGender());
 
         Student updateStudent = studentRepository.save(student);
-        return StudentResponse.fromEntity(updateStudent);
+        StudentResponse response = StudentResponse.fromEntity(updateStudent); 
+        redisService.set(
+            STUDENT_KEY_PREFIX + id, 
+            response, 
+            STUDENT_CACHE_TTL);
+        redisService.delete(ALL_STUDENTS_KEY);
+        return response;
     }
     @Override
     @CacheEvict( value = "students", key = "#id")
     public void deleteStudent(Long id) {
         Student student = findStudent(id); 
         studentRepository.delete(student);
+        redisService.delete(
+            STUDENT_KEY_PREFIX + id
+        );
+        redisService.delete(ALL_STUDENTS_KEY);
     }
     private Student findStudent(Long id){
         return studentRepository.findById(id)

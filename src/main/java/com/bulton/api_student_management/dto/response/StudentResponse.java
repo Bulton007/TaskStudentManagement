@@ -7,11 +7,18 @@ import java.time.LocalDateTime;
 import com.bulton.api_student_management.entity.Gender;
 import com.bulton.api_student_management.entity.Student;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter 
+@Setter 
 @Builder 
+@NoArgsConstructor 
+@AllArgsConstructor 
+
 public class StudentResponse implements Serializable {
     private static final long serialVersionUID = 1L;
     private Long id; 
