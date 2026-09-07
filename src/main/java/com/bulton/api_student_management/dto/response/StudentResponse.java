@@ -1,5 +1,6 @@
 package com.bulton.api_student_management.dto.response;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -11,7 +12,8 @@ import lombok.Getter;
 
 @Getter 
 @Builder 
-public class StudentResponse {
+public class StudentResponse implements Serializable {
+    private static final long serialVersionUID = 1L;
     private Long id; 
     private String firstName; 
     private String lastName; 

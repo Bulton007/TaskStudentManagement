@@ -3,6 +3,9 @@ package com.bulton.api_student_management.service.impl;
 import java.util.DuplicateFormatFlagsException;
 import java.util.List;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 public class StudentServiceImpl implements StudentService{
     private final StudentRepository studentRepository;
     @Override
+    @CacheEvict(value = "students", allEntries = true)
     public StudentResponse createStudent(StudentRequest request) {
         if(studentRepository.existsByStudentCode(request.getStudentCode())){
             throw new DuplicateFormatFlagsException(
@@ -48,11 +52,17 @@ public class StudentServiceImpl implements StudentService{
     }
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(
+        value = "students", 
+        key = "#id", 
+        unless = "#result == null"
+    )
     public StudentResponse getStudentById(Long id) {
         Student student = findStudent(id);
         return StudentResponse.fromEntity(student);
     }
     @Override
+    @Cacheable(value = "studentList", key = "'all'")
     public List<StudentResponse> getAllStudents() {
         return studentRepository.findAll()
         .stream()
@@ -61,6 +71,7 @@ public class StudentServiceImpl implements StudentService{
     }
 
     @Override
+    @CachePut(value = "students", key = "#id")
     public StudentResponse updateStudent(Long id, StudentRequest request) {
         Student student = findStudent(id); 
         boolean studentCodeChange = !student.getStudentCode().equalsIgnoreCase(request.getStudentCode());
@@ -91,6 +102,7 @@ public class StudentServiceImpl implements StudentService{
         return StudentResponse.fromEntity(updateStudent);
     }
     @Override
+    @CacheEvict( value = "students", key = "#id")
     public void deleteStudent(Long id) {
         Student student = findStudent(id); 
         studentRepository.delete(student);

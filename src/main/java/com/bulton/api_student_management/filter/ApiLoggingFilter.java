@@ -4,20 +4,31 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class ApiLoggingFilter extends OncePerRequestFilter {
 
+    private static final Logger API_LOG =
+        LoggerFactory.getLogger("API_AUDIT");
+
     private static final int MAX_BODY_LENGTH = 5000;
+
+    private final ObjectMapper objectMapper;
 
     @Override
     protected void doFilterInternal(
@@ -27,7 +38,10 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         ContentCachingRequestWrapper requestWrapper =
-            new ContentCachingRequestWrapper(request,MAX_BODY_LENGTH);
+            new ContentCachingRequestWrapper(
+                request,
+                MAX_BODY_LENGTH
+            );
 
         ContentCachingResponseWrapper responseWrapper =
             new ContentCachingResponseWrapper(response);
@@ -35,39 +49,110 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         long startTime = System.currentTimeMillis();
 
         try {
-            filterChain.doFilter(requestWrapper, responseWrapper);
-        } finally {
-            long duration = System.currentTimeMillis() - startTime;
-
-            String method = request.getMethod();
-            String uri = createRequestUri(request);
-            int status = responseWrapper.getStatus();
-            String username = getUsername(request);
-
-            String requestBody = getRequestBody(requestWrapper);
-            String responseBody = getResponseBody(responseWrapper);
-
-            if (isSensitiveEndpoint(request.getRequestURI())) {
-                requestBody = "[REDACTED]";
-                responseBody = "[REDACTED]";
-            }
-
-            log.info(
-                "API method={} uri={} status={} durationMs={} user={} requestBody={} responseBody={}",
-                method,
-                uri,
-                status,
-                duration,
-                username,
-                requestBody,
-                responseBody
+            filterChain.doFilter(
+                requestWrapper,
+                responseWrapper
             );
+        } finally {
+            long duration =
+                System.currentTimeMillis() - startTime;
 
-            responseWrapper.copyBodyToResponse();
+            try {
+                writeJsonLog(
+                    requestWrapper,
+                    responseWrapper,
+                    duration
+                );
+            } catch (Exception loggingException) {
+                log.error(
+                    "Failed to create API audit log",
+                    loggingException
+                );
+            } finally {
+                // Always copy the cached response back to Postman.
+                responseWrapper.copyBodyToResponse();
+            }
         }
     }
 
-    private String createRequestUri(HttpServletRequest request) {
+    private void writeJsonLog(
+        ContentCachingRequestWrapper request,
+        ContentCachingResponseWrapper response,
+        long duration
+    ) throws Exception {
+
+        String method = request.getMethod();
+        String uri = createRequestUri(request);
+        String username = getUsername(request);
+
+        String requestBody = getRequestBody(request);
+        String responseBody = getResponseBody(response);
+
+        ObjectNode logEntry = objectMapper.createObjectNode();
+
+        logEntry.put("event", "API_CALL");
+        logEntry.put("method", method);
+        logEntry.put("uri", uri);
+        logEntry.put("status", response.getStatus());
+        logEntry.put("durationMs", duration);
+        logEntry.put("user", username);
+
+        if (isWriteMethod(method)) {
+            logEntry.put("performedBy", username);
+        }
+
+        if (isSensitiveEndpoint(request.getRequestURI())) {
+            logEntry.put("request", "[REDACTED]");
+            logEntry.put("response", "[REDACTED]");
+        } else {
+            addJsonOrText(
+                logEntry,
+                "request",
+                requestBody
+            );
+
+            addJsonOrText(
+                logEntry,
+                "response",
+                responseBody
+            );
+        }
+
+        API_LOG.info(
+            objectMapper.writeValueAsString(logEntry)
+        );
+    }
+
+    private void addJsonOrText(
+        ObjectNode logEntry,
+        String field,
+        String content
+    ) {
+        if (content == null || content.isBlank()) {
+            logEntry.putNull(field);
+            return;
+        }
+
+        try {
+            logEntry.set(
+                field,
+                objectMapper.readTree(content)
+            );
+        } catch (Exception exception) {
+            logEntry.put(field, content);
+        }
+    }
+
+    private boolean isWriteMethod(String method) {
+        return method.equalsIgnoreCase("POST")
+            || method.equalsIgnoreCase("PUT")
+            || method.equalsIgnoreCase("PATCH")
+            || method.equalsIgnoreCase("DELETE");
+    }
+
+    private String createRequestUri(
+        HttpServletRequest request
+    ) {
         String query = request.getQueryString();
 
         if (query == null || query.isBlank()) {
@@ -77,7 +162,9 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         return request.getRequestURI() + "?" + query;
     }
 
-    private String getUsername(HttpServletRequest request) {
+    private String getUsername(
+        HttpServletRequest request
+    ) {
         if (request.getUserPrincipal() == null) {
             return "anonymous";
         }
@@ -94,7 +181,9 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
             return "";
         }
 
-        return limit(new String(content, StandardCharsets.UTF_8));
+        return limit(
+            new String(content, StandardCharsets.UTF_8)
+        );
     }
 
     private String getResponseBody(
@@ -106,7 +195,9 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
             return "";
         }
 
-        return limit(new String(content, StandardCharsets.UTF_8));
+        return limit(
+            new String(content, StandardCharsets.UTF_8)
+        );
     }
 
     private String limit(String body) {
@@ -118,7 +209,10 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
             return singleLine;
         }
 
-        return singleLine.substring(0, MAX_BODY_LENGTH) + "...[TRUNCATED]";
+        return singleLine.substring(
+            0,
+            MAX_BODY_LENGTH
+        ) + "...[TRUNCATED]";
     }
 
     private boolean isSensitiveEndpoint(String uri) {

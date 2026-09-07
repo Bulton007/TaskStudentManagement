@@ -1,61 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <configuration>
 
-    <property name="LOG_PATH" value="logs"/>
+    <property name="LOG_DIR" value="logs"/>
+    <property name="ARCHIVE_DIR" value="${LOG_DIR}/archive"/>
 
-    <property
-        name="LOG_PATTERN"
-        value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{40} - %msg%n"
-    />
+    <!-- JSON request and response logs -->
+    <appender name="API_FILE"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
 
-    <appender
-        name="CONSOLE"
-        class="ch.qos.logback.core.ConsoleAppender"
-    >
-        <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
-        </encoder>
-    </appender>
+        <file>${LOG_DIR}/api-audit.log</file>
 
-    <appender
-        name="APPLICATION_FILE"
-        class="ch.qos.logback.core.rolling.RollingFileAppender"
-    >
-        <file>${LOG_PATH}/application.log</file>
-
-        <rollingPolicy
-            class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy"
-        >
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>
-                ${LOG_PATH}/archive/application-%d{yyyy-MM-dd}.%i.log.gz
+                ${ARCHIVE_DIR}/api-audit-%d{yyyy-MM-dd}.%i.log.gz
             </fileNamePattern>
 
             <maxFileSize>10MB</maxFileSize>
             <maxHistory>30</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
+            <totalSizeCap>500MB</totalSizeCap>
         </rollingPolicy>
 
+        <!-- ApiLoggingFilter already produces JSON -->
         <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+            <pattern>%msg%n</pattern>
         </encoder>
     </appender>
 
-    <appender
-        name="ERROR_FILE"
-        class="ch.qos.logback.core.rolling.RollingFileAppender"
-    >
-        <file>${LOG_PATH}/error.log</file>
+    <!-- Only controlled API and third-party errors -->
+    <appender name="ERROR_FILE"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
 
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>ERROR</level>
-        </filter>
+        <file>${LOG_DIR}/error.log</file>
 
-        <rollingPolicy
-            class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy"
-        >
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>
-                ${LOG_PATH}/archive/error-%d{yyyy-MM-dd}.%i.log.gz
+                ${ARCHIVE_DIR}/error-%d{yyyy-MM-dd}.%i.log.gz
             </fileNamePattern>
 
             <maxFileSize>10MB</maxFileSize>
@@ -64,14 +44,45 @@
         </rollingPolicy>
 
         <encoder>
-            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+            <pattern>%msg%n</pattern>
         </encoder>
     </appender>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="APPLICATION_FILE"/>
+    <!-- Terminal shows only warnings and errors -->
+    <appender name="CONSOLE"
+              class="ch.qos.logback.core.ConsoleAppender">
+
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
+
+        <encoder>
+            <charset>UTF-8</charset>
+            <pattern>
+                %d{HH:mm:ss.SSS} %-5level %logger{30} - %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+
+    <!-- Used by ApiLoggingFilter -->
+    <logger name="API_AUDIT"
+            level="INFO"
+            additivity="false">
+        <appender-ref ref="API_FILE"/>
+    </logger>
+
+    <!-- Used by exception handler and GlobalThirdPartyClient -->
+    <logger name="API_ERROR"
+            level="ERROR"
+            additivity="false">
         <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- Do not write normal Spring startup information to files -->
+    <root level="WARN">
+        <appender-ref ref="CONSOLE"/>
     </root>
 
 </configuration>
