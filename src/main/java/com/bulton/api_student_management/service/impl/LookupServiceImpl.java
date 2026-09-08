@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.bulton.api_student_management.dto.response.lookup.CountryResponse;
 import com.bulton.api_student_management.dto.response.lookup.DistrictResponse;
 import com.bulton.api_student_management.dto.response.lookup.ProvinceResponse;
-import com.bulton.api_student_management.entity.District;
 import com.bulton.api_student_management.exception.ResourceNotFoundException;
 import com.bulton.api_student_management.repository.CountryRepository;
 import com.bulton.api_student_management.repository.DistrictRepository;
@@ -25,7 +24,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor 
 @Transactional(readOnly = true)
 public class LookupServiceImpl implements LookupService{
-    private static final String COUNTRY_CACHE_KEY = "lookup:countires"; 
+    private static final String COUNTRY_CACHE_KEY = "lookup:countries"; 
     private static final String PROVINCE_CAHCE_KEY = "lookup:provinces"; 
     private static final String DISTRICT_CACHE_KEY = "lookup:districts"; 
     private static final Duration LOOK_UP_TTL = Duration.ofHours(24); 
