@@ -1,16 +1,22 @@
 package com.bulton.api_student_management.service.impl;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.DuplicateFormatFlagsException;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.catalina.connector.Response;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bulton.api_student_management.audit.entity.StudentOperationType;
+import com.bulton.api_student_management.audit.service.StudentAuditService;
 import com.bulton.api_student_management.dto.request.StudentRequest;
 import com.bulton.api_student_management.dto.response.StudentResponse;
 import com.bulton.api_student_management.entity.Student;
@@ -23,10 +29,13 @@ import lombok.RequiredArgsConstructor;
 
 @Service 
 @RequiredArgsConstructor 
-@Transactional 
+@Transactional (
+    transactionManager = "primaryTransactionManager"
+)
 public class StudentServiceImpl implements StudentService{
     private final StudentRepository studentRepository;
     private final RedisService redisService;
+    private final StudentAuditService studentAuditService;
     private static final String STUDENT_KEY_PREFIX = "students:"; 
     private static final String ALL_STUDENTS_KEY = "students:all"; 
     private static final Duration STUDENT_CACHE_TTL = Duration.ofMinutes(10); 
@@ -55,6 +64,15 @@ public class StudentServiceImpl implements StudentService{
             .build();
         Student savedStudent = studentRepository.save(student);
         StudentResponse response = StudentResponse.fromEntity(savedStudent); 
+        studentAuditService.recordOperation(
+            savedStudent.getId(), 
+            StudentOperationType.CREATE,
+            getCurrentUsername(),
+            "Student created: "
+                            + savedStudent.getFirstName()
+                            + " " 
+                            + savedStudent.getLastName()    
+        );
         redisService.set(
             STUDENT_KEY_PREFIX + savedStudent.getId(), 
             response, 
@@ -63,7 +81,9 @@ public class StudentServiceImpl implements StudentService{
         return response;    
     }
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, 
+        transactionManager = "primaryTransactionManager"
+    )
     public StudentResponse getStudentById(Long id) {
         String cacheKey = STUDENT_KEY_PREFIX + id; 
         Optional<StudentResponse> cachedStudent = 
@@ -75,16 +95,44 @@ public class StudentServiceImpl implements StudentService{
         } 
         Student student = findStudent(id);
         StudentResponse response = StudentResponse.fromEntity(student); 
+                studentAuditService.recordOperation(
+            id,
+            StudentOperationType.READ,
+            getCurrentUsername(),
+            "Student Viewd: "+ id
+                          
+        );
         redisService.set(cacheKey, response, Duration.ofMinutes(10));
         return response;
     }
     @Override
     @Cacheable(value = "studentList", key = "'all'")
     public List<StudentResponse> getAllStudents() {
-        return studentRepository.findAll()
-        .stream()
-        .map(StudentResponse::fromEntity)
-        .toList();
+        Optional<StudentResponse[]> cached = 
+            redisService.get(
+                ALL_STUDENTS_KEY, 
+                StudentResponse[].class);
+        List<StudentResponse> response; 
+        if(cached.isPresent()){
+            response = Arrays.asList(cached.get());
+        }else{
+            response = 
+                studentRepository.findAll()
+                    .stream()
+                    .map(StudentResponse::fromEntity)
+                    .toList();
+            redisService.set(
+                ALL_STUDENTS_KEY, 
+                response, 
+                STUDENT_CACHE_TTL);
+        }
+        studentAuditService.recordOperation(
+        null, 
+        StudentOperationType.READ_ALL,
+        getCurrentUsername(),
+        "All Students Viewed; total = " + response.size()
+    );
+    return response;
     }
 
     @Override
@@ -117,6 +165,16 @@ public class StudentServiceImpl implements StudentService{
 
         Student updateStudent = studentRepository.save(student);
         StudentResponse response = StudentResponse.fromEntity(updateStudent); 
+        
+                studentAuditService.recordOperation(
+            updateStudent.getId(), 
+            StudentOperationType.CREATE,
+            getCurrentUsername(),
+            "Student updated: "
+                            + updateStudent.getFirstName()
+                            + " " 
+                            + updateStudent.getLastName()    
+        );
         redisService.set(
             STUDENT_KEY_PREFIX + id, 
             response, 
@@ -129,8 +187,17 @@ public class StudentServiceImpl implements StudentService{
     public void deleteStudent(Long id) {
         Student student = findStudent(id); 
         studentRepository.delete(student);
+        studentRepository.flush();
+        String studentName = student.getFirstName() + " " + student.getLastName();
         redisService.delete(
             STUDENT_KEY_PREFIX + id
+        );
+                studentAuditService.recordOperation(
+            id,
+            StudentOperationType.DELETE,
+            getCurrentUsername(),
+            "Student created: " + studentName
+                                
         );
         redisService.delete(ALL_STUDENTS_KEY);
     }
@@ -139,5 +206,20 @@ public class StudentServiceImpl implements StudentService{
             .orElseThrow(() -> new ResourceNotFoundException(
                 "Student Not Found with ID : " + id
             ));
+    }
+    private String getCurrentUsername(){
+        Authentication authentication = 
+            SecurityContextHolder
+                .getContext()
+                .getAuthentication();
+            if( authentication == null
+                    || !authentication.isAuthenticated()
+                    || "anonymousUser".equals(
+                        authentication.getPrincipal()
+                    )
+            ){
+                return "anonymous";
+            }
+        return authentication.getName();
     }
 }
