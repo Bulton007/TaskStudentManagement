@@ -2,11 +2,8 @@ package com.bulton.api_student_management.service.impl;
 
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.DuplicateFormatFlagsException;
 import java.util.List;
 import java.util.Optional;
-
-import org.apache.catalina.connector.Response;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
@@ -30,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 @Service 
 @RequiredArgsConstructor 
 @Transactional (
-    transactionManager = "primaryTransactionManager"
+    transactionManager = "transactionManager"
 )
 public class StudentServiceImpl implements StudentService{
     private final StudentRepository studentRepository;
@@ -42,13 +39,13 @@ public class StudentServiceImpl implements StudentService{
     @Override
     public StudentResponse createStudent(StudentRequest request) {
         if(studentRepository.existsByStudentCode(request.getStudentCode())){
-            throw new DuplicateFormatFlagsException(
+            throw new DuplicationResourceException(
                 "Student Code Already Exits" + request.getStudentCode()
             ); 
         }
 
         if(studentRepository.existsByEmail(request.getEmail())){
-            throw new DuplicateFormatFlagsException(
+            throw new DuplicationResourceException(
                 "Student Email Already Exits" + request.getEmail()
             );
         }
@@ -65,14 +62,21 @@ public class StudentServiceImpl implements StudentService{
         Student savedStudent = studentRepository.save(student);
         StudentResponse response = StudentResponse.fromEntity(savedStudent); 
         studentAuditService.recordOperation(
-            savedStudent.getId(), 
-            StudentOperationType.CREATE,
-            getCurrentUsername(),
-            "Student created: "
-                            + savedStudent.getFirstName()
-                            + " " 
-                            + savedStudent.getLastName()    
-        );
+    savedStudent.getId(),
+    StudentOperationType.CREATE,
+    getCurrentUsername(),
+    "Student created: "
+        + savedStudent.getFirstName()
+        + " "
+        + savedStudent.getLastName()
+);
+
+// TEMPORARY LOCAL XA TEST — remove after testing.
+if ("XA-FINAL-001".equals(savedStudent.getStudentCode())) {
+    throw new IllegalStateException(
+        "XA_FINAL_TEST: failure after audit flush, before global commit"
+    );
+}
         redisService.set(
             STUDENT_KEY_PREFIX + savedStudent.getId(), 
             response, 
@@ -82,7 +86,7 @@ public class StudentServiceImpl implements StudentService{
     }
     @Override
     @Transactional(readOnly = true, 
-        transactionManager = "primaryTransactionManager"
+        transactionManager = "transactionManager"
     )
     public StudentResponse getStudentById(Long id) {
         String cacheKey = STUDENT_KEY_PREFIX + id; 

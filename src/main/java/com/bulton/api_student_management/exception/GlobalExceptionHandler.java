@@ -13,6 +13,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.bulton.api_student_management.dto.response.ApiResponse;
 
@@ -20,12 +21,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 
 import lombok.RequiredArgsConstructor;
-
+import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 @RestControllerAdvice
 @RequiredArgsConstructor
+@Slf4j 
 public class GlobalExceptionHandler {
 
     private static final Logger ERROR_LOG =
@@ -326,5 +328,33 @@ public class GlobalExceptionHandler {
         }
 
         return exception.getMessage();
+    }
+    @ExceptionHandler (
+        org.springframework.web.server.ResponseStatusException.class
+    )
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatus(
+        ResponseStatusException exception
+    ){
+        ApiResponse<Void> response = ApiResponse.failure(
+            exception.getStatusCode().value(),
+            exception.getReason(),
+            null);
+        return ResponseEntity
+            .status(exception.getStatusCode())
+            .body(response);
+    }
+
+    @ExceptionHandler (
+        org.springframework.dao.DataIntegrityViolationException.class
+    )
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(
+        org.springframework.dao.DataIntegrityViolationException exception
+    ){
+      log.error("Database cosntraint violatation", exception);
+      ApiResponse<Void> response = ApiResponse.failure(
+        HttpStatus.CONFLICT.value(),
+        "The Operation conflicts with a database constraint",
+        null);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 }

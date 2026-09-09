@@ -16,8 +16,8 @@ public class StudentAuditService {
         studentOperationRepsoitory;
 
     @Transactional (
-        transactionManager = "secondaryTransactionManager", 
-        propagation = Propagation.REQUIRES_NEW
+        transactionManager = "transactionManager", 
+        propagation = Propagation.REQUIRED
     )
     public void recordOperation(
         Long stduentId, 
@@ -32,7 +32,7 @@ public class StudentAuditService {
             .performedBy(performedBy)
             .description(description)
             .build(); 
-        studentOperationRepsoitory.save(studentOperation);
+        studentOperationRepsoitory.saveAndFlush(studentOperation);
     }
 
 }
